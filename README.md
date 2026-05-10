@@ -1,83 +1,79 @@
-# ClipVault Native Host
+# ClipVault Native Messaging Host
 
-Native messaging host for the [ClipVault Extension](https://clipvault-psi.vercel.app). Enables downloading **HLS / DASH streams** (Twitch, Vimeo, and other `.m3u8` sources) by delegating downloads to a local [yt-dlp](https://github.com/yt-dlp/yt-dlp) installation.
+This small Python script bridges the ClipVault browser extension to your local **yt-dlp** installation, enabling downloads of HLS streams (Twitch, etc.), complex multi-segment videos, and anything else yt-dlp handles.
 
-## What This Does
+## What it does
 
-The ClipVault browser extension communicates with this native host via [Chrome's Native Messaging API](https://developer.chrome.com/docs/extensions/mv3/nativeMessaging/). When you request an HLS download:
-
-1. Extension → sends download request to this host
-2. Host → spawns `yt-dlp` with the correct format and output path
-3. yt-dlp → downloads and muxes the stream into an MP4/MKV
-4. Host → streams real-time progress back to the extension popup
+- Receives download requests from the ClipVault extension
+- Spawns yt-dlp with the correct arguments
+- Streams real-time progress back to the extension popup
+- Saves files to your `~/Downloads` folder
+- Automatically cleans up temporary cookie files
 
 ## Prerequisites
 
-- Python 3.7+
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and available in your `PATH`
-
-Install yt-dlp:
-
-```bash
-# macOS / Linux
-python3 -m pip install -U yt-dlp
-
-# Or download standalone binary
-# See: https://github.com/yt-dlp/yt-dlp#installation
-```
+1. **Python 3.7+** (usually pre-installed on macOS/Linux)
+2. **yt-dlp** — install with:
+   ```bash
+   pip install yt-dlp
+   # or
+   pip3 install yt-dlp
+   # or
+   python3 -m pip install yt-dlp
+   ```
 
 ## Quick Install
 
-### Option 1: Automatic (Recommended)
+### macOS / Linux
 
 ```bash
-# 1. Clone this repo
-git clone https://github.com/derrick-mwd/clipvault-native-host.git
-cd clipvault-native-host
-
-# 2. Run the installer
+cd ~/Downloads/clipvault-extension/native-host
 python3 install.py
 ```
 
-The installer will:
-- Detect your OS and browser
-- Install the native host manifest to the correct directory
-- Make `clipvault_host.py` executable
-- Verify yt-dlp is available
+### Windows
 
-### Option 2: Manual Install
+```cmd
+cd %USERPROFILE%\Downloads\clipvault-extension\native-host
+python install.py
+```
 
-See [`NATIVE_HOST_README.md`](./NATIVE_HOST_README.md) for manual installation instructions per OS.
+> **Restart your browser** after running the installer.
 
-## Files
+## Manual Install (if automatic fails)
 
-| File | Description |
-|------|-------------|
-| `clipvault_host.py` | Python native messaging host — handles JSON messages from the extension, runs yt-dlp |
-| `clipvault_host.json` | Browser manifest — tells Chrome/Firefox where to find the host |
-| `install.py` | Cross-platform auto-installer |
+### Chrome / Chromium / Brave
 
-## Supported Platforms
+1. Copy `clipvault_host.py` to a permanent location (e.g. `~/.clipvault/`)
+2. Edit `clipvault_host.json` and set `"path"` to the **absolute** path of `clipvault_host.py`
+3. Copy the edited `clipvault_host.json` to:
+   - **macOS**: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`
+   - **Linux**: `~/.config/google-chrome/NativeMessagingHosts/` (or `chromium/`)
+   - **Windows**: Set registry key `HKEY_CURRENT_USER\SOFTWARE\Google\Chrome\NativeMessagingHosts\clipvault_host` to the full path of `clipvault_host.json`
 
-| OS | Chrome | Firefox |
-|----|--------|---------|
-| macOS | ✅ | ✅ |
-| Linux | ✅ | ✅ |
-| Windows | ✅ | ✅ |
+### Firefox
+
+1. Same as above, but copy to:
+   - **macOS**: `~/Library/Application Support/Mozilla/NativeMessagingHosts/`
+   - **Linux**: `~/.mozilla/native-messaging-hosts/`
+   - **Windows**: `%APPDATA%\Mozilla\NativeMessagingHosts\`
+
+## Verify it works
+
+1. Open the ClipVault extension popup
+2. Click the ℹ️ info icon — it shows whether the native host is connected
+3. Or visit https://clipvault-psi.vercel.app, paste a Twitch VOD URL, and click **Get Download Link** → **Open in Extension**
 
 ## Troubleshooting
 
-**"Native host not found" in extension**
-→ Run `python3 install.py` again. Make sure you restarted your browser after installing.
+| Issue | Fix |
+|-------|-----|
+| "Native host not found" | Run `install.py` again, then fully restart your browser |
+| "yt-dlp not found" | Install yt-dlp: `pip install yt-dlp` |
+| Downloads fail silently | Check that yt-dlp works standalone: `yt-dlp --version` |
+| Windows registry error | Run Command Prompt as Administrator |
+| Firefox only, Chrome works | Firefox manifest uses `allowed_extensions` — verify the extension ID matches |
 
-**"yt-dlp not found"**
-→ Install yt-dlp: `python3 -m pip install -U yt-dlp` and ensure it's in your PATH.
+## Uninstall
 
-**Downloads fail immediately**
-→ Check that `clipvault_host.py` is executable: `chmod +x clipvault_host.py`
-
-For more help, see the full [Setup Guide](https://clipvault-psi.vercel.app/setup).
-
-## License
-
-MIT
+Delete the `clipvault_host.json` manifest from your browser's NativeMessagingHosts directory (and remove the Windows registry key if applicable).

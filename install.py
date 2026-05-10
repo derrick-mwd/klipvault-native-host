@@ -90,12 +90,66 @@ def install_chrome(script_dir, host_script_path):
     return True
 
 
-def install_chrome_windows(script_dir, host_script_path):
+def find_chrome_extension_id():
+    """Try to auto-detect the ClipVault extension ID from Chrome's extension directories."""
+    if platform.system() != "Windows":
+        return None
+
+    # Chrome stores extensions in %LOCALAPPDATA%\Google\Chrome\User Data\<Profile>\Extensions\
+    chrome_data = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "User Data")
+    if not os.path.isdir(chrome_data):
+        return None
+
+    # Scan all profiles
+    for profile_name in os.listdir(chrome_data):
+        ext_dir = os.path.join(chrome_data, profile_name, "Extensions")
+        if not os.path.isdir(ext_dir):
+            continue
+
+        for ext_id in os.listdir(ext_dir):
+            ext_path = os.path.join(ext_dir, ext_id)
+            if not os.path.isdir(ext_path):
+                continue
+
+            # Look for version subdirectories
+            for version in os.listdir(ext_path):
+                manifest_file = os.path.join(ext_path, version, "manifest.json")
+                if os.path.isfile(manifest_file):
+                    try:
+                        with open(manifest_file, "r", encoding="utf-8") as f:
+                            manifest = json.load(f)
+                        name = manifest.get("name", "")
+                        # Match our extension name (could be localized or plain)
+                        if "clipvault" in name.lower() or "clip vault" in name.lower():
+                            return ext_id
+                    except Exception:
+                        continue
+    return None
+
+
+def install_chrome_windows(script_dir, host_script_path, extension_id=None):
     """Install for Chrome on Windows via registry."""
     try:
         import winreg
     except ImportError:
         print("⚠️  Could not import winreg. Skipping Chrome Windows install.")
+        return False
+
+    # Auto-detect extension ID if not provided
+    if not extension_id:
+        extension_id = find_chrome_extension_id()
+        if extension_id:
+            print(f"🔍 Auto-detected ClipVault extension ID: {extension_id}")
+
+    if not extension_id:
+        print("❌ Could not detect your ClipVault extension ID.")
+        print()
+        print("To fix this:")
+        print("  1. Open Chrome and go to chrome://extensions/")
+        print("  2. Find 'ClipVault Video Downloader'")
+        print("  3. Copy the Extension ID (e.g., abcdefghijklmnopqrstuvwxyzabc)")
+        print("  4. Re-run: python install.py --extension-id <YOUR_ID>")
+        print()
         return False
 
     # Write manifest + host script to a known location
@@ -121,7 +175,7 @@ def install_chrome_windows(script_dir, host_script_path):
         "path": bat_path,
         "type": "stdio",
         "allowed_origins": [
-            "chrome-extension://d49aa42a0062217be19c949ddbef8425/"
+            f"chrome-extension://{extension_id}/"
         ]
     }
 
@@ -216,6 +270,11 @@ def check_python():
 
 
 def main():
+    # Parse command-line args
+    extension_id = None
+    if len(sys.argv) >= 3 and sys.argv[1] == "--extension-id":
+        extension_id = sys.argv[2]
+
     print("=" * 60)
     print("  ClipVault Native Messaging Host Installer")
     print("=" * 60)
@@ -243,7 +302,7 @@ def main():
     installed_any = False
 
     if system == "Windows":
-        if install_chrome_windows(script_dir, host_script):
+        if install_chrome_windows(script_dir, host_script, extension_id):
             installed_any = True
     else:
         if install_chrome(script_dir, host_script):

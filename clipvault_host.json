@@ -4,6 +4,6 @@
   "path": "clipvault_host.bat",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://d49aa42a0062217be19c949ddbef8425/"
+    "chrome-extension://<YOUR_EXTENSION_ID>/"
   ]
 }

@@ -13,6 +13,25 @@ import shutil
 import struct
 import subprocess
 import sys
+import traceback
+
+# Debug logging: write to a log file in the same directory as this script
+_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clipvault_host.log")
+
+def _log(msg):
+    try:
+        with open(_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[{os.getpid()}] {msg}\n")
+            f.flush()
+    except Exception:
+        pass
+
+_log("=== Native host started ===")
+_log(f"Python: {sys.executable}")
+_log(f"Platform: {sys.platform}")
+_log(f"argv: {sys.argv}")
+_log(f"CWD: {os.getcwd()}")
+_log(f"PATH (first 500 chars): {os.environ.get('PATH', 'NOT SET')[:500]}")
 
 
 def find_yt_dlp():
@@ -21,6 +40,7 @@ def find_yt_dlp():
     Returns (path, search_log) where search_log is a list of diagnostic strings.
     """
     search_log = []
+    _log("find_yt_dlp: starting search...")
 
     # Helper to log and test a candidate
     def test(candidate, source):
@@ -32,20 +52,24 @@ def find_yt_dlp():
             if candidate.lower().endswith(".exe"):
                 if os.path.isfile(candidate):
                     search_log.append(f"  -> FOUND: {candidate}")
+                    _log(f"find_yt_dlp: FOUND at {candidate}")
                     return candidate
             else:
                 # Try .exe variant first
                 candidate_exe = candidate + ".exe"
                 if os.path.isfile(candidate_exe):
                     search_log.append(f"  -> FOUND: {candidate_exe}")
+                    _log(f"find_yt_dlp: FOUND at {candidate_exe}")
                     return candidate_exe
                 # Then plain name with access check
                 if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                     search_log.append(f"  -> FOUND: {candidate}")
+                    _log(f"find_yt_dlp: FOUND at {candidate}")
                     return candidate
         else:
             if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
                 search_log.append(f"  -> FOUND: {candidate}")
+                _log(f"find_yt_dlp: FOUND at {candidate}")
                 return candidate
         return None
 
@@ -69,6 +93,7 @@ def find_yt_dlp():
     path = shutil.which("yt-dlp")
     if path:
         search_log.append(f"  -> FOUND: {path}")
+        _log(f"find_yt_dlp: FOUND via shutil.which at {path}")
         return path, search_log
     search_log.append("  not found via shutil.which")
 
@@ -178,6 +203,7 @@ def find_yt_dlp():
                 return result, search_log
 
     search_log.append("Step 6: Exhausted all search locations. yt-dlp not found.")
+    _log(f"find_yt_dlp: NOT FOUND. Log has {len(search_log)} entries.")
     return None, search_log
 
 
@@ -287,6 +313,7 @@ def _get_shell_path():
 
 def send_message(msg):
     """Send a JSON message to the browser via stdout."""
+    _log(f"SEND: {msg.get('type', msg)}")
     data = json.dumps(msg).encode("utf-8")
     sys.stdout.buffer.write(struct.pack("=I", len(data)))
     sys.stdout.buffer.write(data)
@@ -295,12 +322,17 @@ def send_message(msg):
 
 def read_message():
     """Read a length-prefixed JSON message from stdin."""
+    _log("read_message: waiting for 4-byte length...")
     raw = sys.stdin.buffer.read(4)
     if not raw:
+        _log("read_message: stdin closed (no data)")
         return None
     size = struct.unpack("=I", raw)[0]
+    _log(f"read_message: expecting {size} bytes")
     data = sys.stdin.buffer.read(size).decode("utf-8")
-    return json.loads(data)
+    msg = json.loads(data)
+    _log(f"RECV: {msg.get('action', msg)}")
+    return msg
 
 
 def run_yt_dlp(payload):
@@ -416,32 +448,48 @@ def run_yt_dlp(payload):
 
 
 def main():
-    while True:
-        msg = read_message()
-        if msg is None:
-            break
+    try:
+        while True:
+            msg = read_message()
+            if msg is None:
+                _log("main: stdin closed, exiting")
+                break
 
-        action = msg.get("action")
-        payload = msg.get("payload", {})
+            action = msg.get("action")
+            payload = msg.get("payload", {})
+            _log(f"main: action={action}")
 
-        if action == "ping":
-            yt_dlp, search_log = find_yt_dlp()
-            send_message({
-                "type": "pong",
-                "ytDlpFound": yt_dlp is not None,
-                "ytDlpPath": yt_dlp,
-                "searchLog": search_log,
-            })
-        elif action == "download":
-            run_yt_dlp(payload)
-            send_message({"type": "done"})
-        else:
-            send_message({
-                "type": "error",
-                "error": "unknown_action",
-                "message": f"Unknown action: {action}",
-            })
+            if action == "ping":
+                _log("main: handling ping...")
+                yt_dlp, search_log = find_yt_dlp()
+                _log(f"main: ping result: found={yt_dlp is not None}, path={yt_dlp}")
+                send_message({
+                    "type": "pong",
+                    "ytDlpFound": yt_dlp is not None,
+                    "ytDlpPath": yt_dlp,
+                    "searchLog": search_log,
+                })
+            elif action == "download":
+                _log("main: handling download...")
+                run_yt_dlp(payload)
+                send_message({"type": "done"})
+            else:
+                _log(f"main: unknown action: {action}")
+                send_message({
+                    "type": "error",
+                    "error": "unknown_action",
+                    "message": f"Unknown action: {action}",
+                })
+    except Exception as e:
+        _log(f"CRASH: {type(e).__name__}: {str(e)}")
+        _log(traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        _log(f"FATAL: {type(e).__name__}: {str(e)}")
+        _log(traceback.format_exc())
+        raise

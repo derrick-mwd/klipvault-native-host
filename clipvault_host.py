@@ -26,14 +26,27 @@ def find_yt_dlp():
     def test(candidate, source):
         search_log.append(f"  [{source}] {candidate}")
         if sys.platform == "win32":
-            # On Windows also check .exe
-            candidate_exe = candidate + ".exe"
-            if os.path.isfile(candidate_exe):
-                search_log.append(f"  -> FOUND: {candidate_exe}")
-                return candidate_exe
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            search_log.append(f"  -> FOUND: {candidate}")
-            return candidate
+            # On Windows, .exe files are executable by extension.
+            # os.access(..., os.X_OK) can incorrectly return False for
+            # pip-installed wrappers, so we use os.path.isfile() only.
+            if candidate.lower().endswith(".exe"):
+                if os.path.isfile(candidate):
+                    search_log.append(f"  -> FOUND: {candidate}")
+                    return candidate
+            else:
+                # Try .exe variant first
+                candidate_exe = candidate + ".exe"
+                if os.path.isfile(candidate_exe):
+                    search_log.append(f"  -> FOUND: {candidate_exe}")
+                    return candidate_exe
+                # Then plain name with access check
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    search_log.append(f"  -> FOUND: {candidate}")
+                    return candidate
+        else:
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                search_log.append(f"  -> FOUND: {candidate}")
+                return candidate
         return None
 
     # 1. Try user's actual shell PATH first
@@ -113,6 +126,14 @@ def find_yt_dlp():
             r"C:\yt-dlp\yt-dlp.exe",
             r"C:\Users\%USERNAME%\yt-dlp.exe",
             r"C:\yt-dlp.exe",
+            # User-specific known locations (from install.py diagnostics)
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python310\Scripts\yt-dlp.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python311\Scripts\yt-dlp.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python312\Scripts\yt-dlp.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python313\Scripts\yt-dlp.exe"),
+            os.path.expandvars(r"%APPDATA%\Python\Python310\Scripts\yt-dlp.exe"),
+            os.path.expandvars(r"%APPDATA%\Python\Python311\Scripts\yt-dlp.exe"),
+            os.path.expandvars(r"%APPDATA%\Python\Python312\Scripts\yt-dlp.exe"),
         ]
         # Scan common Python Scripts folders
         python_roots = [

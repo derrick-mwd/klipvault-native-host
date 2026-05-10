@@ -121,7 +121,7 @@ def install_chrome_windows(script_dir, host_script_path):
         "path": bat_path,
         "type": "stdio",
         "allowed_origins": [
-            "chrome-extension://*/"
+            "chrome-extension://d49aa42a0062217be19c949ddbef8425/"
         ]
     }
 

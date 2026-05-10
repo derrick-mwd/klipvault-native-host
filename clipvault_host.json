@@ -1,9 +1,9 @@
 {
   "name": "clipvault_host",
   "description": "ClipVault Native Messaging Host for yt-dlp",
-  "path": "clipvault_host.py",
+  "path": "clipvault_host.bat",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://*/"
+    "chrome-extension://d49aa42a0062217be19c949ddbef8425/"
   ]
 }

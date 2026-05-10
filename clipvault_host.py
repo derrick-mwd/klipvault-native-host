@@ -16,68 +16,103 @@ import sys
 
 
 def find_yt_dlp():
-    """Find yt-dlp binary in PATH or common locations."""
-    # Try user's actual shell PATH first (Chrome's PATH is often minimal)
-    # This fixes the common case where yt-dlp is installed via pip/homebrew
-    # but Chrome launches the native host with a stripped-down PATH.
-    shell_path = _get_shell_path()
-    if shell_path:
-        for directory in shell_path.split(os.pathsep):
-            candidate = os.path.join(directory, "yt-dlp")
-            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                return candidate
-            # Windows
-            if sys.platform == "win32":
-                candidate_exe = candidate + ".exe"
-                if os.path.isfile(candidate_exe):
-                    return candidate_exe
+    """Find yt-dlp binary in PATH or common locations.
 
-    # Fallback: shutil.which with the default (minimal) PATH
+    Returns (path, search_log) where search_log is a list of diagnostic strings.
+    """
+    search_log = []
+
+    # Helper to log and test a candidate
+    def test(candidate, source):
+        search_log.append(f"  [{source}] {candidate}")
+        if sys.platform == "win32":
+            # On Windows also check .exe
+            candidate_exe = candidate + ".exe"
+            if os.path.isfile(candidate_exe):
+                search_log.append(f"  -> FOUND: {candidate_exe}")
+                return candidate_exe
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            search_log.append(f"  -> FOUND: {candidate}")
+            return candidate
+        return None
+
+    # 1. Try user's actual shell PATH first
+    search_log.append("Step 1: querying shell PATH...")
+    shell_path, shell_err = _get_shell_path()
+    if shell_path:
+        search_log.append(f"  shell PATH = {shell_path[:200]}...")
+        for directory in shell_path.split(os.pathsep):
+            directory = directory.strip()
+            if not directory:
+                continue
+            result = test(os.path.join(directory, "yt-dlp"), "shell PATH")
+            if result:
+                return result, search_log
+    else:
+        search_log.append(f"  shell PATH unavailable: {shell_err or 'unknown reason'}")
+
+    # 2. Fallback: shutil.which with default (minimal) PATH
+    search_log.append("Step 2: shutil.which('yt-dlp')...")
     path = shutil.which("yt-dlp")
     if path:
-        return path
+        search_log.append(f"  -> FOUND: {path}")
+        return path, search_log
+    search_log.append("  not found via shutil.which")
 
-    # Common fallback locations — macOS
-    mac_candidates = [
-        "/usr/local/bin/yt-dlp",          # Homebrew (Intel), pip system
-        "/opt/homebrew/bin/yt-dlp",       # Homebrew (Apple Silicon)
-        os.path.expanduser("~/.local/bin/yt-dlp"),  # pip --user (Linux-style on mac)
-        os.path.expanduser("~/bin/yt-dlp"),
-        "/usr/bin/yt-dlp",
-    ]
-    # pip user install on macOS puts binaries in ~/Library/Python/X.Y/bin/
-    try:
-        import glob
-        pip_user_bins = glob.glob(os.path.expanduser("~/Library/Python/*/bin/yt-dlp"))
-        mac_candidates.extend(pip_user_bins)
-    except Exception:
-        pass
+    # 3. macOS-specific fallbacks
+    if sys.platform == "darwin":
+        search_log.append("Step 3: macOS fallback locations...")
+        mac_candidates = [
+            "/usr/local/bin/yt-dlp",
+            "/opt/homebrew/bin/yt-dlp",
+            os.path.expanduser("~/.local/bin/yt-dlp"),
+            os.path.expanduser("~/bin/yt-dlp"),
+            "/usr/bin/yt-dlp",
+            "/opt/local/bin/yt-dlp",          # MacPorts
+            "/opt/pkg/bin/yt-dlp",            # pkgsrc
+            os.path.expanduser("~/Library/Python/3.9/bin/yt-dlp"),
+            os.path.expanduser("~/Library/Python/3.10/bin/yt-dlp"),
+            os.path.expanduser("~/Library/Python/3.11/bin/yt-dlp"),
+            os.path.expanduser("~/Library/Python/3.12/bin/yt-dlp"),
+            os.path.expanduser("~/Library/Python/3.13/bin/yt-dlp"),
+        ]
+        try:
+            import glob
+            pip_user_bins = glob.glob(os.path.expanduser("~/Library/Python/*/bin/yt-dlp"))
+            mac_candidates.extend(pip_user_bins)
+        except Exception:
+            pass
+        for c in mac_candidates:
+            result = test(c, "macOS fallback")
+            if result:
+                return result, search_log
 
-    for c in mac_candidates:
-        if os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
+    # 4. Linux-specific fallbacks
+    if sys.platform.startswith("linux"):
+        search_log.append("Step 4: Linux fallback locations...")
+        linux_candidates = [
+            os.path.expanduser("~/.local/bin/yt-dlp"),
+            os.path.expanduser("~/bin/yt-dlp"),
+            "/usr/local/bin/yt-dlp",
+            "/usr/bin/yt-dlp",
+            "/bin/yt-dlp",
+            "/snap/bin/yt-dlp",
+            os.path.expanduser("~/.yt-dlp/yt-dlp"),
+            os.path.expanduser("~/.config/yt-dlp/yt-dlp"),
+        ]
+        for c in linux_candidates:
+            result = test(c, "Linux fallback")
+            if result:
+                return result, search_log
 
-    # Common fallback locations — Linux
-    linux_candidates = [
-        os.path.expanduser("~/.local/bin/yt-dlp"),
-        os.path.expanduser("~/bin/yt-dlp"),
-        "/usr/local/bin/yt-dlp",
-        "/usr/bin/yt-dlp",
-        "/bin/yt-dlp",
-        os.path.expanduser("~/.yt-dlp/yt-dlp"),
-    ]
-    for c in linux_candidates:
-        if os.path.isfile(c) and os.access(c, os.X_OK):
-            return c
-
-    # Windows
+    # 5. Windows-specific fallbacks
     if sys.platform == "win32":
+        search_log.append("Step 5: Windows fallback locations...")
         import glob
         win_candidates = [
-            # Our setup guide recommends C:\yt-dlp
             r"C:\yt-dlp\yt-dlp.exe",
-            # pip install puts it in Python Scripts folder
-            # We need to scan actual Python install directories
+            r"C:\Users\%USERNAME%\yt-dlp.exe",
+            r"C:\yt-dlp.exe",
         ]
         # Scan common Python Scripts folders
         python_roots = [
@@ -86,46 +121,63 @@ def find_yt_dlp():
             r"C:\Python",
             r"C:\Program Files\Python",
             r"C:\Program Files (x86)\Python",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps"),
         ]
         for root in python_roots:
             if not os.path.isdir(root):
+                search_log.append(f"  [skip] dir not found: {root}")
                 continue
-            # Look for Python3x/Scripts/yt-dlp.exe
             for scripts_dir in glob.glob(os.path.join(root, "*", "Scripts")):
-                candidate = os.path.join(scripts_dir, "yt-dlp.exe")
-                if os.path.isfile(candidate):
-                    return candidate
+                result = test(os.path.join(scripts_dir, "yt-dlp.exe"), "Windows Python Scripts")
+                if result:
+                    return result, search_log
 
         # pip user install on Windows
-        user_scripts = os.path.expandvars(r"%APPDATA%\Python\Python*\Scripts")
-        for scripts_dir in glob.glob(user_scripts):
-            candidate = os.path.join(scripts_dir, "yt-dlp.exe")
-            if os.path.isfile(candidate):
-                return candidate
+        user_scripts_patterns = [
+            os.path.expandvars(r"%APPDATA%\Python\Python*\Scripts"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python*\Scripts"),
+        ]
+        for pattern in user_scripts_patterns:
+            for scripts_dir in glob.glob(pattern):
+                result = test(os.path.join(scripts_dir, "yt-dlp.exe"), "Windows pip user")
+                if result:
+                    return result, search_log
 
-        # Also check the user's home directory
+        # Check common standalone locations
         home = os.path.expanduser("~")
         for c in win_candidates:
-            if os.path.isfile(c):
-                return c
-            # Check in home as well
-            home_candidate = os.path.join(home, os.path.basename(c))
-            if os.path.isfile(home_candidate):
-                return home_candidate
+            c_expanded = os.path.expandvars(c)
+            result = test(c_expanded, "Windows standalone")
+            if result:
+                return result, search_log
+            # Also check in home
+            home_candidate = os.path.join(home, os.path.basename(c_expanded))
+            result = test(home_candidate, "Windows home")
+            if result:
+                return result, search_log
 
-    return None
+    search_log.append("Step 6: Exhausted all search locations. yt-dlp not found.")
+    return None, search_log
 
 
 def _get_shell_path():
     """
     Try to retrieve the user's actual shell PATH.
-    Chrome (and other GUI apps on macOS/Linux) launch child processes with a
-    minimal system PATH that doesn't include pip --user, Homebrew, etc.
-    We run the user's default shell in non-interactive mode to get its PATH.
+    Returns (path_string, error_string).  path_string may be None.
     """
+    errors = []
+
+    # On Windows, the native host inherits Chrome's env which already has
+    # the full system+user PATH. Try it first — it's the fastest and most reliable.
+    if sys.platform == "win32":
+        env_path = os.environ.get("PATH", "")
+        if env_path:
+            return env_path, None
+        errors.append("os.environ PATH is empty on Windows")
+
+    # Attempt 1: run the login shell
     try:
         shell = os.environ.get("SHELL", "/bin/sh")
-        # Use -l (login) to load profile/rc files, -c to run a command
         result = subprocess.run(
             [shell, "-l", "-c", "echo $PATH"],
             capture_output=True,
@@ -133,30 +185,83 @@ def _get_shell_path():
             timeout=3,
         )
         if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
+            path = result.stdout.strip()
+            if path:
+                return path, None
+            errors.append("login shell returned empty PATH")
+        else:
+            errors.append(f"login shell exited {result.returncode}: {result.stderr.strip()[:100]}")
+    except Exception as e:
+        errors.append(f"login shell failed: {type(e).__name__}: {str(e)[:100]}")
 
-    # Fallback for Windows: try to read the registry PATH
+    # Attempt 2: run shell without -l (some shells don't support -l)
+    try:
+        shell = os.environ.get("SHELL", "/bin/sh")
+        result = subprocess.run(
+            [shell, "-c", "echo $PATH"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            path = result.stdout.strip()
+            if path:
+                return path, None
+            errors.append("shell -c returned empty PATH")
+        else:
+            errors.append(f"shell -c exited {result.returncode}: {result.stderr.strip()[:100]}")
+    except Exception as e:
+        errors.append(f"shell -c failed: {type(e).__name__}: {str(e)[:100]}")
+
+    # Attempt 3: on macOS, read common shell config files directly
+    if sys.platform == "darwin":
+        try:
+            home = os.path.expanduser("~")
+            for rc_file in [".zshrc", ".bash_profile", ".bashrc", ".profile"]:
+                rc_path = os.path.join(home, rc_file)
+                if os.path.isfile(rc_path):
+                    with open(rc_path, "r") as f:
+                        content = f.read()
+                    for line in content.splitlines():
+                        line = line.strip()
+                        if line.startswith("export PATH=") or line.startswith("PATH="):
+                            # Extract PATH value
+                            eq = line.find("=")
+                            if eq > 0:
+                                val = line[eq + 1:].strip().strip('"').strip("'")
+                                if val:
+                                    return val, None
+            errors.append("no PATH export found in shell rc files")
+        except Exception as e:
+            errors.append(f"rc file read failed: {type(e).__name__}: {str(e)[:100]}")
+
+    # Attempt 4: on Windows, read registry PATH and expand env vars
     if sys.platform == "win32":
         try:
             import winreg
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
-                path, _ = winreg.QueryValueEx(key, "Path")
-                if path:
-                    return path
-        except Exception:
-            pass
+                path_raw, _ = winreg.QueryValueEx(key, "Path")
+                if path_raw:
+                    # Expand %USERPROFILE%, %APPDATA%, etc.
+                    path = winreg.ExpandEnvironmentStrings(path_raw)
+                    if path:
+                        return path, None
+            errors.append("HKCU Environment Path empty")
+        except Exception as e:
+            errors.append(f"HKCU registry failed: {type(e).__name__}: {str(e)[:100]}")
         try:
             import winreg
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as key:
-                path, _ = winreg.QueryValueEx(key, "Path")
-                if path:
-                    return path
-        except Exception:
-            pass
+                path_raw, _ = winreg.QueryValueEx(key, "Path")
+                if path_raw:
+                    path = winreg.ExpandEnvironmentStrings(path_raw)
+                    if path:
+                        return path, None
+            errors.append("HKLM Environment Path empty")
+        except Exception as e:
+            errors.append(f"HKLM registry failed: {type(e).__name__}: {str(e)[:100]}")
 
-    return None
+    return None, "; ".join(errors)
 
 
 def send_message(msg):
@@ -179,12 +284,13 @@ def read_message():
 
 def run_yt_dlp(payload):
     """Run yt-dlp with the given payload and stream progress."""
-    yt_dlp_path = find_yt_dlp()
+    yt_dlp_path, search_log = find_yt_dlp()
     if not yt_dlp_path:
         send_message({
             "type": "error",
             "error": "yt-dlp not found",
-            "message": "yt-dlp is not installed or not in your PATH. Install it with: pip install yt-dlp"
+            "message": "yt-dlp is not installed or not in your PATH. Install it with: pip install yt-dlp",
+            "searchLog": search_log,
         })
         return
 
@@ -298,11 +404,12 @@ def main():
         payload = msg.get("payload", {})
 
         if action == "ping":
-            yt_dlp = find_yt_dlp()
+            yt_dlp, search_log = find_yt_dlp()
             send_message({
                 "type": "pong",
                 "ytDlpFound": yt_dlp is not None,
                 "ytDlpPath": yt_dlp,
+                "searchLog": search_log,
             })
         elif action == "download":
             run_yt_dlp(payload)

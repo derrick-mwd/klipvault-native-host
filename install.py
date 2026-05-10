@@ -98,17 +98,32 @@ def install_chrome_windows(script_dir, host_script_path):
         print("⚠️  Could not import winreg. Skipping Chrome Windows install.")
         return False
 
-    # Create manifest file
-    manifest_path = os.path.join(script_dir, "clipvault_host.json")
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-
-    manifest["path"] = host_script_path
-
-    # Write manifest to a known location
+    # Write manifest + host script to a known location
     appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
     nm_dir = os.path.join(appdata, "ClipVault", "NativeMessagingHosts")
     os.makedirs(nm_dir, exist_ok=True)
+
+    # Copy the Python host script into the same directory
+    dest_script = os.path.join(nm_dir, "clipvault_host.py")
+    shutil.copy2(host_script_path, dest_script)
+
+    # Create a .bat wrapper so Chrome doesn't need .py file associations
+    python_exe = sys.executable  # full path to the python that ran install.py
+    bat_path = os.path.join(nm_dir, "clipvault_host.bat")
+    with open(bat_path, "w", newline="") as f:
+        f.write('@echo off\n')
+        f.write(f'"{python_exe}" "%~dp0clipvault_host.py"\n')
+
+    # Create manifest pointing to the .bat wrapper
+    manifest = {
+        "name": "clipvault_host",
+        "description": "ClipVault Native Messaging Host for yt-dlp",
+        "path": bat_path,
+        "type": "stdio",
+        "allowed_origins": [
+            "chrome-extension://*/"
+        ]
+    }
 
     dest_manifest = os.path.join(nm_dir, "clipvault_host.json")
     with open(dest_manifest, "w") as f:
@@ -121,6 +136,8 @@ def install_chrome_windows(script_dir, host_script_path):
             winreg.SetValueEx(key, None, 0, winreg.REG_SZ, dest_manifest)
         print(f"✅ Chrome registry key created: {key_path}")
         print(f"✅ Chrome manifest installed: {dest_manifest}")
+        print(f"✅ Host script copied to: {dest_script}")
+        print(f"✅ Launcher wrapper created: {bat_path}")
         return True
     except Exception as e:
         print(f"❌ Failed to create Chrome registry key: {e}")
@@ -136,11 +153,24 @@ def install_firefox(script_dir, host_script_path):
 
     os.makedirs(nm_dir, exist_ok=True)
 
+    # On Windows, copy script to same dir and use .bat wrapper
+    if platform.system() == "Windows":
+        dest_script = os.path.join(nm_dir, "clipvault_host.py")
+        shutil.copy2(host_script_path, dest_script)
+        python_exe = sys.executable
+        bat_path = os.path.join(nm_dir, "clipvault_host.bat")
+        with open(bat_path, "w", newline="") as f:
+            f.write('@echo off\n')
+            f.write(f'"{python_exe}" "%~dp0clipvault_host.py"\n')
+        manifest_path = bat_path
+    else:
+        manifest_path = host_script_path
+
     # Firefox manifest needs different allowed_origins
     manifest = {
         "name": "clipvault_host",
         "description": "ClipVault Native Messaging Host for yt-dlp",
-        "path": host_script_path,
+        "path": manifest_path,
         "type": "stdio",
         "allowed_extensions": ["clipvault@velocityforge.com"]
     }

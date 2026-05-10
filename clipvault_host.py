@@ -17,36 +17,144 @@ import sys
 
 def find_yt_dlp():
     """Find yt-dlp binary in PATH or common locations."""
-    # Check PATH first
+    # Try user's actual shell PATH first (Chrome's PATH is often minimal)
+    # This fixes the common case where yt-dlp is installed via pip/homebrew
+    # but Chrome launches the native host with a stripped-down PATH.
+    shell_path = _get_shell_path()
+    if shell_path:
+        for directory in shell_path.split(os.pathsep):
+            candidate = os.path.join(directory, "yt-dlp")
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+            # Windows
+            if sys.platform == "win32":
+                candidate_exe = candidate + ".exe"
+                if os.path.isfile(candidate_exe):
+                    return candidate_exe
+
+    # Fallback: shutil.which with the default (minimal) PATH
     path = shutil.which("yt-dlp")
     if path:
         return path
 
-    # Common fallback locations
-    candidates = [
+    # Common fallback locations — macOS
+    mac_candidates = [
+        "/usr/local/bin/yt-dlp",          # Homebrew (Intel), pip system
+        "/opt/homebrew/bin/yt-dlp",       # Homebrew (Apple Silicon)
+        os.path.expanduser("~/.local/bin/yt-dlp"),  # pip --user (Linux-style on mac)
+        os.path.expanduser("~/bin/yt-dlp"),
+        "/usr/bin/yt-dlp",
+    ]
+    # pip user install on macOS puts binaries in ~/Library/Python/X.Y/bin/
+    try:
+        import glob
+        pip_user_bins = glob.glob(os.path.expanduser("~/Library/Python/*/bin/yt-dlp"))
+        mac_candidates.extend(pip_user_bins)
+    except Exception:
+        pass
+
+    for c in mac_candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+
+    # Common fallback locations — Linux
+    linux_candidates = [
         os.path.expanduser("~/.local/bin/yt-dlp"),
         os.path.expanduser("~/bin/yt-dlp"),
         "/usr/local/bin/yt-dlp",
         "/usr/bin/yt-dlp",
+        "/bin/yt-dlp",
         os.path.expanduser("~/.yt-dlp/yt-dlp"),
     ]
-    for c in candidates:
+    for c in linux_candidates:
         if os.path.isfile(c) and os.access(c, os.X_OK):
             return c
 
     # Windows
     if sys.platform == "win32":
-        win_candidates = [
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python3*\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%APPDATA%\Python\Python3*\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%USERPROFILE%\yt-dlp.exe"),
-            r"C:\Program Files\yt-dlp\yt-dlp.exe",
-        ]
         import glob
-        for pattern in win_candidates:
-            matches = glob.glob(pattern)
-            if matches:
-                return matches[0]
+        win_candidates = [
+            # Our setup guide recommends C:\yt-dlp
+            r"C:\yt-dlp\yt-dlp.exe",
+            # pip install puts it in Python Scripts folder
+            # We need to scan actual Python install directories
+        ]
+        # Scan common Python Scripts folders
+        python_roots = [
+            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python"),
+            os.path.expandvars(r"%APPDATA%\Python"),
+            r"C:\Python",
+            r"C:\Program Files\Python",
+            r"C:\Program Files (x86)\Python",
+        ]
+        for root in python_roots:
+            if not os.path.isdir(root):
+                continue
+            # Look for Python3x/Scripts/yt-dlp.exe
+            for scripts_dir in glob.glob(os.path.join(root, "*", "Scripts")):
+                candidate = os.path.join(scripts_dir, "yt-dlp.exe")
+                if os.path.isfile(candidate):
+                    return candidate
+
+        # pip user install on Windows
+        user_scripts = os.path.expandvars(r"%APPDATA%\Python\Python*\Scripts")
+        for scripts_dir in glob.glob(user_scripts):
+            candidate = os.path.join(scripts_dir, "yt-dlp.exe")
+            if os.path.isfile(candidate):
+                return candidate
+
+        # Also check the user's home directory
+        home = os.path.expanduser("~")
+        for c in win_candidates:
+            if os.path.isfile(c):
+                return c
+            # Check in home as well
+            home_candidate = os.path.join(home, os.path.basename(c))
+            if os.path.isfile(home_candidate):
+                return home_candidate
+
+    return None
+
+
+def _get_shell_path():
+    """
+    Try to retrieve the user's actual shell PATH.
+    Chrome (and other GUI apps on macOS/Linux) launch child processes with a
+    minimal system PATH that doesn't include pip --user, Homebrew, etc.
+    We run the user's default shell in non-interactive mode to get its PATH.
+    """
+    try:
+        shell = os.environ.get("SHELL", "/bin/sh")
+        # Use -l (login) to load profile/rc files, -c to run a command
+        result = subprocess.run(
+            [shell, "-l", "-c", "echo $PATH"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+
+    # Fallback for Windows: try to read the registry PATH
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                path, _ = winreg.QueryValueEx(key, "Path")
+                if path:
+                    return path
+        except Exception:
+            pass
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as key:
+                path, _ = winreg.QueryValueEx(key, "Path")
+                if path:
+                    return path
+        except Exception:
+            pass
 
     return None
 

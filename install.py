@@ -207,16 +207,29 @@ def install_firefox(script_dir, host_script_path):
 
     os.makedirs(nm_dir, exist_ok=True)
 
-    # On Windows, copy script to same dir and use .bat wrapper
+    # On Windows, Firefox requires an actual .exe for native messaging.
+    # .bat files don't work because Firefox uses CreateProcessW directly.
+    # We ship a tiny C wrapper (firefox_wrapper.exe) that discovers python.exe
+    # via registry and runs clipvault_host.py with inherited stdio handles.
     if platform.system() == "Windows":
         dest_script = os.path.join(nm_dir, "clipvault_host.py")
         shutil.copy2(host_script_path, dest_script)
-        python_exe = sys.executable
-        bat_path = os.path.join(nm_dir, "clipvault_host.bat")
-        with open(bat_path, "w", newline="") as f:
-            f.write('@echo off\n')
-            f.write(f'"{python_exe}" "%~dp0clipvault_host.py"\n')
-        manifest_path = bat_path
+        # Copy the pre-built wrapper exe
+        wrapper_src = os.path.join(script_dir, "firefox_wrapper.exe")
+        if os.path.isfile(wrapper_src):
+            wrapper_dest = os.path.join(nm_dir, "firefox_wrapper.exe")
+            shutil.copy2(wrapper_src, wrapper_dest)
+            manifest_path = wrapper_dest
+            print(f"✅ Firefox wrapper copied: {wrapper_dest}")
+        else:
+            # Fallback to .bat if wrapper not found (should not happen)
+            python_exe = sys.executable
+            bat_path = os.path.join(nm_dir, "clipvault_host.bat")
+            with open(bat_path, "w", newline="") as f:
+                f.write('@echo off\n')
+                f.write(f'"{python_exe}" "%~dp0clipvault_host.py"\n')
+            manifest_path = bat_path
+            print(f"⚠️  firefox_wrapper.exe not found, falling back to .bat: {bat_path}")
     else:
         manifest_path = host_script_path
 

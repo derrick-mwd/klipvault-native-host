@@ -7,6 +7,7 @@ Protocol: Chrome native messaging (length-prefixed JSON)
 https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging
 """
 
+import glob
 import json
 import os
 import shutil
@@ -15,22 +16,30 @@ import subprocess
 import sys
 import traceback
 
-# Debug logging: write to a log file. Try script dir first, then TEMP.
+# Debug logging: write to a log file. Try script dir first, then TEMP, then cwd.
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LOG_PATHS = [
     os.path.join(_SCRIPT_DIR, "clipvault_host.log"),
     os.path.join(os.environ.get("TEMP", "/tmp"), "clipvault_host.log"),
+    os.path.join(os.getcwd(), "clipvault_host.log"),
 ]
 
 def _log(msg):
+    written = False
     for path in _LOG_PATHS:
         try:
             with open(path, "a", encoding="utf-8") as f:
                 f.write(f"[{os.getpid()}] {msg}\n")
                 f.flush()
-            return  # success
+            written = True
         except Exception:
             continue
+    if not written and sys.stderr:
+        try:
+            sys.stderr.write(f"[{os.getpid()}] {msg}\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 _log("=== Native host started ===")
 _log(f"Python: {sys.executable}")
@@ -153,28 +162,30 @@ def find_yt_dlp():
     # 5. Windows-specific fallbacks
     if sys.platform == "win32":
         search_log.append("Step 5: Windows fallback locations...")
-        import glob
+        # Firefox may not pass env vars (LOCALAPPDATA/APPDATA) to native hosts.
+        # Use expanduser('~') to get the user home reliably.
+        home = os.path.expanduser("~")
         win_candidates = [
             r"C:\yt-dlp\yt-dlp.exe",
-            r"C:\Users\%USERNAME%\yt-dlp.exe",
             r"C:\yt-dlp.exe",
-            # User-specific known locations (from install.py diagnostics)
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python310\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python311\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python312\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python313\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%APPDATA%\Python\Python310\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%APPDATA%\Python\Python311\Scripts\yt-dlp.exe"),
-            os.path.expandvars(r"%APPDATA%\Python\Python312\Scripts\yt-dlp.exe"),
+            # User-specific known locations using home (no env vars needed)
+            os.path.join(home, r"AppData\Local\Programs\Python\Python310\Scripts\yt-dlp.exe"),
+            os.path.join(home, r"AppData\Local\Programs\Python\Python311\Scripts\yt-dlp.exe"),
+            os.path.join(home, r"AppData\Local\Programs\Python\Python312\Scripts\yt-dlp.exe"),
+            os.path.join(home, r"AppData\Local\Programs\Python\Python313\Scripts\yt-dlp.exe"),
+            os.path.join(home, r"AppData\Roaming\Python\Python310\Scripts\yt-dlp.exe"),
+            os.path.join(home, r"AppData\Roaming\Python\Python311\Scripts\yt-dlp.exe"),
+            os.path.join(home, r"AppData\Roaming\Python\Python312\Scripts\yt-dlp.exe"),
+            os.path.join(home, r"AppData\Roaming\Python\Python313\Scripts\yt-dlp.exe"),
         ]
         # Scan common Python Scripts folders
         python_roots = [
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python"),
-            os.path.expandvars(r"%APPDATA%\Python"),
+            os.path.join(home, r"AppData\Local\Programs\Python"),
+            os.path.join(home, r"AppData\Roaming\Python"),
             r"C:\Python",
             r"C:\Program Files\Python",
             r"C:\Program Files (x86)\Python",
-            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps"),
+            os.path.join(home, r"AppData\Local\Microsoft\WindowsApps"),
         ]
         for root in python_roots:
             if not os.path.isdir(root):
@@ -187,8 +198,8 @@ def find_yt_dlp():
 
         # pip user install on Windows
         user_scripts_patterns = [
-            os.path.expandvars(r"%APPDATA%\Python\Python*\Scripts"),
-            os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python*\Scripts"),
+            os.path.join(home, r"AppData\Roaming\Python\Python*\Scripts"),
+            os.path.join(home, r"AppData\Local\Programs\Python\Python*\Scripts"),
         ]
         for pattern in user_scripts_patterns:
             for scripts_dir in glob.glob(pattern):
@@ -197,14 +208,12 @@ def find_yt_dlp():
                     return result, search_log
 
         # Check common standalone locations
-        home = os.path.expanduser("~")
         for c in win_candidates:
-            c_expanded = os.path.expandvars(c)
-            result = test(c_expanded, "Windows standalone")
+            result = test(c, "Windows standalone")
             if result:
                 return result, search_log
-            # Also check in home
-            home_candidate = os.path.join(home, os.path.basename(c_expanded))
+            # Also check in home root
+            home_candidate = os.path.join(home, os.path.basename(c))
             result = test(home_candidate, "Windows home")
             if result:
                 return result, search_log
@@ -221,13 +230,34 @@ def _get_shell_path():
     """
     errors = []
 
-    # On Windows, the native host inherits Chrome's env which already has
-    # the full system+user PATH. Try it first — it's the fastest and most reliable.
+    # On Windows, the native host inherits the browser's env which usually has
+    # the full system+user PATH. Try it first.
     if sys.platform == "win32":
         env_path = os.environ.get("PATH", "")
         if env_path:
             return env_path, None
         errors.append("os.environ PATH is empty on Windows")
+
+        # Fallback for browsers (like Firefox) that don't pass PATH:
+        # construct a minimal PATH from known locations.
+        home = os.path.expanduser("~")
+        known_dirs = [
+            os.path.join(home, r"AppData\Local\Programs\Python\Python310\Scripts"),
+            os.path.join(home, r"AppData\Local\Programs\Python\Python311\Scripts"),
+            os.path.join(home, r"AppData\Local\Programs\Python\Python312\Scripts"),
+            os.path.join(home, r"AppData\Local\Programs\Python\Python313\Scripts"),
+            os.path.join(home, r"AppData\Roaming\Python\Python310\Scripts"),
+            os.path.join(home, r"AppData\Roaming\Python\Python311\Scripts"),
+            os.path.join(home, r"AppData\Roaming\Python\Python312\Scripts"),
+            r"C:\yt-dlp",
+            r"C:\Windows\System32",
+            r"C:\Windows",
+        ]
+        existing = [d for d in known_dirs if os.path.isdir(d)]
+        if existing:
+            constructed = os.pathsep.join(existing)
+            return constructed, None
+        errors.append("no known Python Scripts dirs found under user home")
 
     # Attempt 1: run the login shell
     try:

@@ -162,9 +162,11 @@ def find_yt_dlp():
     # 5. Windows-specific fallbacks
     if sys.platform == "win32":
         search_log.append("Step 5: Windows fallback locations...")
-        # Firefox may not pass env vars (LOCALAPPDATA/APPDATA) to native hosts.
-        # Use expanduser('~') to get the user home reliably.
-        home = os.path.expanduser("~")
+        # Firefox does NOT pass env vars (USERPROFILE, LOCALAPPDATA, PATH, etc.)
+        # to native messaging hosts. os.path.expanduser('~') depends on USERPROFILE
+        # which is missing, so it may return '~' literally. Use registry instead.
+        home = _get_windows_home()
+        search_log.append(f"  Windows home detected: {home}")
         win_candidates = [
             r"C:\yt-dlp\yt-dlp.exe",
             r"C:\yt-dlp.exe",
@@ -223,6 +225,64 @@ def find_yt_dlp():
     return None, search_log
 
 
+def _get_windows_home():
+    """
+    Get the Windows user profile directory without relying on environment variables.
+    Firefox strips USERPROFILE, HOMEDRIVE, HOMEPATH, LOCALAPPDATA, etc. from native
+    messaging hosts, so os.path.expanduser('~') returns '~' literally.
+    Use the Windows registry (volatile and persistent) and ctypes as fallbacks.
+    """
+    if sys.platform != "win32":
+        return os.path.expanduser("~")
+
+    # Attempt 1: Volatile Environment registry key (per-session, reliable)
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Volatile Environment") as key:
+            val, _ = winreg.QueryValueEx(key, "USERPROFILE")
+            if val and os.path.isdir(val):
+                return val
+    except Exception:
+        pass
+
+    # Attempt 2: Persistent registry Shell Folders -> Personal -> parent
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders") as key:
+            val, _ = winreg.QueryValueEx(key, "Personal")
+            if val:
+                profile = os.path.normpath(os.path.join(val, ".."))
+                if os.path.isdir(profile):
+                    return profile
+    except Exception:
+        pass
+
+    # Attempt 3: ctypes GetUserProfileDirectoryW (userenv.dll)
+    try:
+        import ctypes
+        from ctypes import wintypes
+        token = wintypes.HANDLE()
+        if ctypes.windll.advapi32.OpenProcessToken(
+            ctypes.windll.kernel32.GetCurrentProcess(),
+            0x0008,  # TOKEN_QUERY
+            ctypes.byref(token)
+        ):
+            buf_size = wintypes.DWORD(512)
+            buf = ctypes.create_unicode_buffer(512)
+            if ctypes.windll.userenv.GetUserProfileDirectoryW(token, buf, ctypes.byref(buf_size)) == 0:
+                if buf.value and os.path.isdir(buf.value):
+                    return buf.value
+    except Exception:
+        pass
+
+    # Attempt 4: expanduser as last resort (works if env vars are present)
+    home = os.path.expanduser("~")
+    if home and home != "~" and os.path.isdir(home):
+        return home
+
+    return None
+
+
 def _get_shell_path():
     """
     Try to retrieve the user's actual shell PATH.
@@ -240,7 +300,10 @@ def _get_shell_path():
 
         # Fallback for browsers (like Firefox) that don't pass PATH:
         # construct a minimal PATH from known locations.
-        home = os.path.expanduser("~")
+        home = _get_windows_home()
+        if not home:
+            errors.append("could not determine Windows user home directory")
+            return None, "; ".join(errors)
         known_dirs = [
             os.path.join(home, r"AppData\Local\Programs\Python\Python310\Scripts"),
             os.path.join(home, r"AppData\Local\Programs\Python\Python311\Scripts"),
@@ -391,9 +454,11 @@ def run_yt_dlp(payload):
     cookies = payload.get("cookies", "")
 
     # Determine output path
-    download_dir = os.path.expanduser("~/Downloads")
     if sys.platform == "win32":
-        download_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        home = _get_windows_home() or os.path.expanduser("~")
+        download_dir = os.path.join(home, "Downloads")
+    else:
+        download_dir = os.path.expanduser("~/Downloads")
     if not os.path.isdir(download_dir):
         download_dir = os.path.expanduser("~")
 
@@ -406,7 +471,11 @@ def run_yt_dlp(payload):
 
     # Handle cookies if provided
     if cookies:
-        cookies_path = os.path.join(os.path.expanduser("~"), ".clipvault_cookies.txt")
+        if sys.platform == "win32":
+            home = _get_windows_home() or os.path.expanduser("~")
+            cookies_path = os.path.join(home, ".clipvault_cookies.txt")
+        else:
+            cookies_path = os.path.join(os.path.expanduser("~"), ".clipvault_cookies.txt")
         with open(cookies_path, "w") as f:
             f.write(cookies)
         cmd += ["--cookies", cookies_path]
@@ -479,7 +548,11 @@ def run_yt_dlp(payload):
         })
     finally:
         # Clean up temp cookies
-        cookies_path = os.path.join(os.path.expanduser("~"), ".clipvault_cookies.txt")
+        if sys.platform == "win32":
+            home = _get_windows_home() or os.path.expanduser("~")
+            cookies_path = os.path.join(home, ".clipvault_cookies.txt")
+        else:
+            cookies_path = os.path.join(os.path.expanduser("~"), ".clipvault_cookies.txt")
         if os.path.exists(cookies_path):
             os.remove(cookies_path)
 

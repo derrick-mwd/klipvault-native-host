@@ -15,16 +15,22 @@ import subprocess
 import sys
 import traceback
 
-# Debug logging: write to a log file in the same directory as this script
-_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clipvault_host.log")
+# Debug logging: write to a log file. Try script dir first, then TEMP.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_LOG_PATHS = [
+    os.path.join(_SCRIPT_DIR, "clipvault_host.log"),
+    os.path.join(os.environ.get("TEMP", "/tmp"), "clipvault_host.log"),
+]
 
 def _log(msg):
-    try:
-        with open(_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(f"[{os.getpid()}] {msg}\n")
-            f.flush()
-    except Exception:
-        pass
+    for path in _LOG_PATHS:
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"[{os.getpid()}] {msg}\n")
+                f.flush()
+            return  # success
+        except Exception:
+            continue
 
 _log("=== Native host started ===")
 _log(f"Python: {sys.executable}")
@@ -32,6 +38,7 @@ _log(f"Platform: {sys.platform}")
 _log(f"argv: {sys.argv}")
 _log(f"CWD: {os.getcwd()}")
 _log(f"PATH (first 500 chars): {os.environ.get('PATH', 'NOT SET')[:500]}")
+_log(f"Script dir: {_SCRIPT_DIR}")
 
 
 def find_yt_dlp():

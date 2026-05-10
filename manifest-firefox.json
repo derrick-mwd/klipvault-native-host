@@ -1,0 +1,51 @@
+{
+  "manifest_version": 2,
+  "name": "ClipVault Video Downloader",
+  "version": "1.1.6",
+  "description": "Download videos from YouTube, Vimeo, Dailymotion and more directly from your browser.",
+  "permissions": [
+    "downloads",
+    "storage",
+    "activeTab",
+    "nativeMessaging",
+    "https://clipvault-psi.vercel.app/*",
+    "https://*.googlevideo.com/*",
+    "https://*.vimeocdn.com/*",
+    "https://*.dmcdn.net/*"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://clipvault-psi.vercel.app/*",
+        "https://www.youtube.com/*",
+        "https://vimeo.com/*",
+        "https://www.dailymotion.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "clipvault@velocityforge.com",
+      "strict_min_version": "109.0"
+    }
+  }
+}

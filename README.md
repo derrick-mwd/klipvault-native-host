@@ -1,10 +1,10 @@
-# ClipVault Native Messaging Host
+# KlipVault Native Messaging Host
 
-This small Python script bridges the ClipVault browser extension to your local **yt-dlp** installation, enabling downloads of HLS streams (Twitch, etc.), complex multi-segment videos, and anything else yt-dlp handles.
+This small Python script bridges the KlipVault browser extension to your local **yt-dlp** installation, enabling downloads of HLS streams (Twitch, etc.), complex multi-segment videos, and anything else yt-dlp handles.
 
 ## What it does
 
-- Receives download requests from the ClipVault extension
+- Receives download requests from the KlipVault extension
 - Spawns yt-dlp with the correct arguments
 - Streams real-time progress back to the extension popup
 - Saves files to your `~/Downloads` folder
@@ -27,14 +27,14 @@ This small Python script bridges the ClipVault browser extension to your local *
 ### macOS / Linux
 
 ```bash
-cd ~/Downloads/clipvault-extension/native-host
+cd ~/Downloads/klipvault-extension/native-host
 python3 install.py
 ```
 
 ### Windows
 
 ```cmd
-cd %USERPROFILE%\Downloads\clipvault-extension\native-host
+cd %USERPROFILE%\Downloads\klipvault-extension\native-host
 python install.py
 ```
 
@@ -44,12 +44,12 @@ python install.py
 
 ### Chrome / Chromium / Brave
 
-1. Copy `clipvault_host.py` to a permanent location (e.g. `~/.clipvault/`)
-2. Edit `clipvault_host.json` and set `"path"` to the **absolute** path of `clipvault_host.py`
-3. Copy the edited `clipvault_host.json` to:
+1. Copy `klipvault_host.py` to a permanent location (e.g. `~/.clipvault/`)
+2. Edit `klipvault_host.json` and set `"path"` to the **absolute** path of `klipvault_host.py`
+3. Copy the edited `klipvault_host.json` to:
    - **macOS**: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`
    - **Linux**: `~/.config/google-chrome/NativeMessagingHosts/` (or `chromium/`)
-   - **Windows**: Set registry key `HKEY_CURRENT_USER\SOFTWARE\Google\Chrome\NativeMessagingHosts\clipvault_host` to the full path of `clipvault_host.json`
+   - **Windows**: Set registry key `HKEY_CURRENT_USER\SOFTWARE\Google\Chrome\NativeMessagingHosts\klipvault_host` to the full path of `klipvault_host.json`
 
 ### Firefox
 
@@ -60,7 +60,7 @@ python install.py
 
 ## Verify it works
 
-1. Open the ClipVault extension popup
+1. Open the KlipVault extension popup
 2. Click the ℹ️ info icon — it shows whether the native host is connected
 3. Or visit https://clipvault-psi.vercel.app, paste a Twitch VOD URL, and click **Get Download Link** → **Open in Extension**
 
@@ -76,4 +76,4 @@ python install.py
 
 ## Uninstall
 
-Delete the `clipvault_host.json` manifest from your browser's NativeMessagingHosts directory (and remove the Windows registry key if applicable).
+Delete the `klipvault_host.json` manifest from your browser's NativeMessagingHosts directory (and remove the Windows registry key if applicable).

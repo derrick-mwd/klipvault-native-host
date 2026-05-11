@@ -1,5 +1,5 @@
 /**
- * ClipVault Firefox Native Host Wrapper (Windows)
+ * KlipVault Firefox Native Host Wrapper (Windows)
  *
  * Firefox on Windows requires native messaging hosts to be actual .exe files.
  * .bat files don't work because Firefox uses CreateProcessW directly.
@@ -7,7 +7,7 @@
  * This tiny wrapper:
  *  1. Finds its own directory
  *  2. Discovers python.exe via Windows registry (no env vars needed)
- *  3. Runs "python.exe clipvault_host.py" with inherited stdio handles
+ *  3. Runs "python.exe klipvault_host.py" with inherited stdio handles
  *  4. Waits for the child to finish
  */
 
@@ -111,7 +111,7 @@ int main(void) {
     // Get directory of this executable
     DWORD len = GetModuleFileNameA(NULL, exeDir, sizeof(exeDir));
     if (len == 0 || len >= sizeof(exeDir)) {
-        fprintf(stderr, "[ClipVaultWrapper] Failed to get module path\n");
+        fprintf(stderr, "[KlipVaultWrapper] Failed to get module path\n");
         return 1;
     }
 
@@ -119,13 +119,13 @@ int main(void) {
     if (!lastSlash) lastSlash = strrchr(exeDir, '/');
     if (lastSlash) *(lastSlash + 1) = '\0';
 
-    // Build path to clipvault_host.py
-    snprintf(pyScript, sizeof(pyScript), "%sclipvault_host.py", exeDir);
+    // Build path to klipvault_host.py
+    snprintf(pyScript, sizeof(pyScript), "%sklipvault_host.py", exeDir);
 
     // Verify the script exists
     DWORD attrs = GetFileAttributesA(pyScript);
     if (attrs == INVALID_FILE_ATTRIBUTES) {
-        fprintf(stderr, "[ClipVaultWrapper] clipvault_host.py not found: %s\n", pyScript);
+        fprintf(stderr, "[KlipVaultWrapper] klipvault_host.py not found: %s\n", pyScript);
         return 1;
     }
 
@@ -162,8 +162,8 @@ int main(void) {
 
     if (!created) {
         DWORD err = GetLastError();
-        fprintf(stderr, "[ClipVaultWrapper] CreateProcess failed (error %lu)\n", err);
-        fprintf(stderr, "[ClipVaultWrapper] Command: %s\n", cmdLine);
+        fprintf(stderr, "[KlipVaultWrapper] CreateProcess failed (error %lu)\n", err);
+        fprintf(stderr, "[KlipVaultWrapper] Command: %s\n", cmdLine);
         return 1;
     }
 

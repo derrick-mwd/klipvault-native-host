@@ -1,0 +1,9 @@
+{
+  "name": "klipvault_host",
+  "description": "KlipVault Native Messaging Host for yt-dlp",
+  "path": "klipvault_host.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://<YOUR_EXTENSION_ID>/"
+  ]
+}

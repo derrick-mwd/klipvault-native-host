@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ClipVault Native Host Installer
+KlipVault Native Host Installer
 Sets up the native messaging host for Chrome and Firefox.
 
 Usage:
@@ -76,13 +76,13 @@ def install_chrome(script_dir, host_script_path):
     os.makedirs(nm_dir, exist_ok=True)
 
     # Create manifest with absolute path
-    manifest_path = os.path.join(script_dir, "clipvault_host.json")
+    manifest_path = os.path.join(script_dir, "klipvault_host.json")
     with open(manifest_path) as f:
         manifest = json.load(f)
 
     manifest["path"] = host_script_path
 
-    dest_manifest = os.path.join(nm_dir, "clipvault_host.json")
+    dest_manifest = os.path.join(nm_dir, "klipvault_host.json")
     with open(dest_manifest, "w") as f:
         json.dump(manifest, f, indent=2)
 
@@ -91,7 +91,7 @@ def install_chrome(script_dir, host_script_path):
 
 
 def find_chrome_extension_id():
-    """Try to auto-detect the ClipVault extension ID from Chrome's extension directories."""
+    """Try to auto-detect the KlipVault extension ID from Chrome's extension directories."""
     if platform.system() != "Windows":
         return None
 
@@ -120,7 +120,7 @@ def find_chrome_extension_id():
                             manifest = json.load(f)
                         name = manifest.get("name", "")
                         # Match our extension name (could be localized or plain)
-                        if "clipvault" in name.lower() or "clip vault" in name.lower():
+                        if "klipvault" in name.lower() or "clip vault" in name.lower():
                             return ext_id
                     except Exception:
                         continue
@@ -139,14 +139,14 @@ def install_chrome_windows(script_dir, host_script_path, extension_id=None):
     if not extension_id:
         extension_id = find_chrome_extension_id()
         if extension_id:
-            print(f"🔍 Auto-detected ClipVault extension ID: {extension_id}")
+            print(f"🔍 Auto-detected KlipVault extension ID: {extension_id}")
 
     if not extension_id:
-        print("❌ Could not detect your ClipVault extension ID.")
+        print("❌ Could not detect your KlipVault extension ID.")
         print()
         print("To fix this:")
         print("  1. Open Chrome and go to chrome://extensions/")
-        print("  2. Find 'ClipVault Video Downloader'")
+        print("  2. Find 'KlipVault Video Downloader'")
         print("  3. Copy the Extension ID (e.g., abcdefghijklmnopqrstuvwxyzabc)")
         print("  4. Re-run: python install.py --extension-id <YOUR_ID>")
         print()
@@ -154,24 +154,24 @@ def install_chrome_windows(script_dir, host_script_path, extension_id=None):
 
     # Write manifest + host script to a known location
     appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
-    nm_dir = os.path.join(appdata, "ClipVault", "NativeMessagingHosts")
+    nm_dir = os.path.join(appdata, "KlipVault", "NativeMessagingHosts")
     os.makedirs(nm_dir, exist_ok=True)
 
     # Copy the Python host script into the same directory
-    dest_script = os.path.join(nm_dir, "clipvault_host.py")
+    dest_script = os.path.join(nm_dir, "klipvault_host.py")
     shutil.copy2(host_script_path, dest_script)
 
     # Create a .bat wrapper so Chrome doesn't need .py file associations
     python_exe = sys.executable  # full path to the python that ran install.py
-    bat_path = os.path.join(nm_dir, "clipvault_host.bat")
+    bat_path = os.path.join(nm_dir, "klipvault_host.bat")
     with open(bat_path, "w", newline="") as f:
         f.write('@echo off\n')
-        f.write(f'"{python_exe}" "%~dp0clipvault_host.py"\n')
+        f.write(f'"{python_exe}" "%~dp0klipvault_host.py"\n')
 
     # Create manifest pointing to the .bat wrapper
     manifest = {
-        "name": "clipvault_host",
-        "description": "ClipVault Native Messaging Host for yt-dlp",
+        "name": "klipvault_host",
+        "description": "KlipVault Native Messaging Host for yt-dlp",
         "path": bat_path,
         "type": "stdio",
         "allowed_origins": [
@@ -179,12 +179,12 @@ def install_chrome_windows(script_dir, host_script_path, extension_id=None):
         ]
     }
 
-    dest_manifest = os.path.join(nm_dir, "clipvault_host.json")
+    dest_manifest = os.path.join(nm_dir, "klipvault_host.json")
     with open(dest_manifest, "w") as f:
         json.dump(manifest, f, indent=2)
 
     # Register in registry
-    key_path = r"SOFTWARE\Google\Chrome\NativeMessagingHosts\clipvault_host"
+    key_path = r"SOFTWARE\Google\Chrome\NativeMessagingHosts\klipvault_host"
     try:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
             winreg.SetValueEx(key, None, 0, winreg.REG_SZ, dest_manifest)
@@ -210,9 +210,9 @@ def install_firefox(script_dir, host_script_path):
     # On Windows, Firefox requires an actual .exe for native messaging.
     # .bat files don't work because Firefox uses CreateProcessW directly.
     # We ship a tiny C wrapper (firefox_wrapper.exe) that discovers python.exe
-    # via registry and runs clipvault_host.py with inherited stdio handles.
+    # via registry and runs klipvault_host.py with inherited stdio handles.
     if platform.system() == "Windows":
-        dest_script = os.path.join(nm_dir, "clipvault_host.py")
+        dest_script = os.path.join(nm_dir, "klipvault_host.py")
         shutil.copy2(host_script_path, dest_script)
         # Copy the pre-built wrapper exe
         wrapper_src = os.path.join(script_dir, "firefox_wrapper.exe")
@@ -224,10 +224,10 @@ def install_firefox(script_dir, host_script_path):
         else:
             # Fallback to .bat if wrapper not found (should not happen)
             python_exe = sys.executable
-            bat_path = os.path.join(nm_dir, "clipvault_host.bat")
+            bat_path = os.path.join(nm_dir, "klipvault_host.bat")
             with open(bat_path, "w", newline="") as f:
                 f.write('@echo off\n')
-                f.write(f'"{python_exe}" "%~dp0clipvault_host.py"\n')
+                f.write(f'"{python_exe}" "%~dp0klipvault_host.py"\n')
             manifest_path = bat_path
             print(f"⚠️  firefox_wrapper.exe not found, falling back to .bat: {bat_path}")
     else:
@@ -235,14 +235,14 @@ def install_firefox(script_dir, host_script_path):
 
     # Firefox manifest needs different allowed_origins
     manifest = {
-        "name": "clipvault_host",
-        "description": "ClipVault Native Messaging Host for yt-dlp",
+        "name": "klipvault_host",
+        "description": "KlipVault Native Messaging Host for yt-dlp",
         "path": manifest_path,
         "type": "stdio",
-        "allowed_extensions": ["clipvault@velocityforge.com"]
+        "allowed_extensions": ["klipvault@velocityforge.com"]
     }
 
-    dest_manifest = os.path.join(nm_dir, "clipvault_host.json")
+    dest_manifest = os.path.join(nm_dir, "klipvault_host.json")
     with open(dest_manifest, "w") as f:
         json.dump(manifest, f, indent=2)
 
@@ -289,7 +289,7 @@ def main():
         extension_id = sys.argv[2]
 
     print("=" * 60)
-    print("  ClipVault Native Messaging Host Installer")
+    print("  KlipVault Native Messaging Host Installer")
     print("=" * 60)
     print()
 
@@ -301,7 +301,7 @@ def main():
     print()
 
     script_dir = get_script_dir()
-    host_script = os.path.join(script_dir, "clipvault_host.py")
+    host_script = os.path.join(script_dir, "klipvault_host.py")
 
     if not os.path.isfile(host_script):
         print(f"❌ Host script not found: {host_script}")
@@ -332,12 +332,12 @@ def main():
         print()
         print("Restart your browser for changes to take effect.")
         print()
-        print("Then visit https://clipvault-psi.vercel.app and try")
+        print("Then visit the KlipVault website and try")
         print("downloading a Twitch VOD or other HLS stream.")
     else:
         print("⚠️  No browsers were configured. Check the errors above.")
         print()
-        print("You can manually copy clipvault_host.json to your browser's")
+        print("You can manually copy klipvault_host.json to your browser's")
         print("NativeMessagingHosts directory. See the setup guide on the website.")
 
     print()

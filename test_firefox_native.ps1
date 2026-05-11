@@ -1,11 +1,11 @@
-# ClipVault Firefox Native Messaging Diagnostic Script
+# KlipVault Firefox Native Messaging Diagnostic Script
 # Run this in PowerShell to test if the native host works
 
-Write-Host "=== ClipVault Firefox Native Host Diagnostic ===" -ForegroundColor Cyan
+Write-Host "=== KlipVault Firefox Native Host Diagnostic ===" -ForegroundColor Cyan
 Write-Host ""
 
-$firefoxManifestPath = "$env:APPDATA\Mozilla\NativeMessagingHosts\clipvault_host.json"
-$chromeManifestPath = "$env:LOCALAPPDATA\ClipVault\NativeMessagingHosts\clipvault_host.json"
+$firefoxManifestPath = "$env:APPDATA\Mozilla\NativeMessagingHosts\klipvault_host.json"
+$chromeManifestPath = "$env:LOCALAPPDATA\KlipVault\NativeMessagingHosts\klipvault_host.json"
 $firefoxHostDir = "$env:APPDATA\Mozilla\NativeMessagingHosts"
 
 # 1. Check Firefox manifest
@@ -23,8 +23,8 @@ Write-Host ""
 
 # 2. Check if the host script/bat exists
 Write-Host "2. Checking host executable..." -ForegroundColor Yellow
-$batPath = "$firefoxHostDir\clipvault_host.bat"
-$pyPath = "$firefoxHostDir\clipvault_host.py"
+$batPath = "$firefoxHostDir\klipvault_host.bat"
+$pyPath = "$firefoxHostDir\klipvault_host.py"
 if (Test-Path $batPath) {
     Write-Host "   ✅ Found .bat: $batPath" -ForegroundColor Green
     Write-Host "   Content:" -ForegroundColor Gray
@@ -106,9 +106,9 @@ Write-Host ""
 # 4. Check for log files
 Write-Host "4. Checking for log files..." -ForegroundColor Yellow
 $logPaths = @(
-    "$firefoxHostDir\clipvault_host.log",
-    "$env:TEMP\clipvault_host.log",
-    "$env:LOCALAPPDATA\ClipVault\NativeMessagingHosts\clipvault_host.log"
+    "$firefoxHostDir\klipvault_host.log",
+    "$env:TEMP\klipvault_host.log",
+    "$env:LOCALAPPDATA\KlipVault\NativeMessagingHosts\klipvault_host.log"
 )
 $foundLog = $false
 foreach ($lp in $logPaths) {
@@ -130,13 +130,13 @@ $firefoxExtDir = "$env:APPDATA\Mozilla\Firefox\Profiles"
 if (Test-Path $firefoxExtDir) {
     $profiles = Get-ChildItem $firefoxExtDir -Directory
     foreach ($profile in $profiles) {
-        $extFile = "$($profile.FullName)\extensions\clipvault@velocityforge.com"
+        $extFile = "$($profile.FullName)\extensions\klipvault@velocityforge.com"
         $jsonFile = "$($profile.FullName)\extensions.json"
         if (Test-Path $extFile) {
             Write-Host "   ✅ Extension found in profile: $($profile.Name)" -ForegroundColor Green
         }
         if (Test-Path $jsonFile) {
-            $hasClipvault = Select-String -Path $jsonFile -Pattern "clipvault" -Quiet
+            $hasClipvault = Select-String -Path $jsonFile -Pattern "klipvault" -Quiet
             if ($hasClipvault) {
                 Write-Host "   ✅ clipvault referenced in extensions.json for: $($profile.Name)" -ForegroundColor Green
             }

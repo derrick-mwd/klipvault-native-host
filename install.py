@@ -52,10 +52,72 @@ def get_chrome_nm_dir():
     return None
 
 
+def is_wsl():
+    """Detect if running inside Windows Subsystem for Linux."""
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        with open("/proc/version", "r") as f:
+            return "microsoft" in f.read().lower() or "wsl" in f.read().lower()
+    except Exception:
+        pass
+    return False
+
+
+def get_windows_home_from_wsl():
+    """Get Windows user home directory when running in WSL."""
+    # Try wslpath first
+    try:
+        result = subprocess.run(["wslpath", "-u", "C:\\Users"], capture_output=True, text=True)
+        if result.returncode == 0:
+            users_dir = result.stdout.strip()
+            # Find the non-system user folder
+            for name in sorted(os.listdir(users_dir)):
+                user_path = os.path.join(users_dir, name)
+                if name not in ("All Users", "Default", "Default User", "Public") and os.path.isdir(user_path):
+                    return user_path
+    except Exception:
+        pass
+
+    # Fallback: read Windows USERPROFILE via powershell
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-Command", "Write-Output $env:USERPROFILE"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            win_path = result.stdout.strip()
+            # Convert C:\Users\zylux to /mnt/c/Users/zylux
+            if len(win_path) >= 3 and win_path[1] == ":":
+                drive = win_path[0].lower()
+                rest = win_path[3:].replace("\\", "/")
+                return f"/mnt/{drive}/{rest}"
+    except Exception:
+        pass
+
+    # Last resort: scan /mnt/c/Users for a real user directory
+    for drive in "cdefgh":
+        users_dir = f"/mnt/{drive}/Users"
+        if os.path.isdir(users_dir):
+            for name in sorted(os.listdir(users_dir)):
+                user_path = os.path.join(users_dir, name)
+                if name not in ("All Users", "Default", "Default User", "Public") and os.path.isdir(user_path):
+                    return user_path
+    return None
+
+
 def get_firefox_nm_dir():
     """Get Firefox NativeMessagingHosts directory."""
     system = platform.system()
     home = os.path.expanduser("~")
+
+    if is_wsl():
+        # On WSL, install to Windows Firefox location so Windows Firefox can find it
+        win_home = get_windows_home_from_wsl()
+        if win_home:
+            return os.path.join(win_home, "AppData", "Roaming", "Mozilla", "NativeMessagingHosts")
+        # Fallback
+        return os.path.join("/mnt/c/Users", os.environ.get("USER", ""), "AppData", "Roaming", "Mozilla", "NativeMessagingHosts")
 
     if system == "Darwin":
         return os.path.join(home, "Library/Application Support/Mozilla/NativeMessagingHosts")
@@ -124,6 +186,49 @@ def find_chrome_extension_id():
                             return ext_id
                     except Exception:
                         continue
+    return None
+
+
+def find_firefox_extension_id():
+    """Try to auto-detect the KlipVault extension ID from Firefox's extensions.json.
+    
+    When a Firefox extension is loaded as a temporary add-on, Firefox assigns a
+    random UUID instead of using the gecko.id from the manifest. We need to read
+    the actual ID from Firefox's profile data.
+    """
+    system = platform.system()
+    home = os.path.expanduser("~")
+
+    if system == "Windows":
+        profiles_dir = os.path.join(os.environ.get("APPDATA", home), "Mozilla", "Firefox", "Profiles")
+    elif system == "Darwin":
+        profiles_dir = os.path.join(home, "Library", "Application Support", "Firefox", "Profiles")
+    else:  # Linux
+        profiles_dir = os.path.join(home, ".mozilla", "firefox")
+
+    if not os.path.isdir(profiles_dir):
+        return None
+
+    for item in os.listdir(profiles_dir):
+        profile_path = os.path.join(profiles_dir, item)
+        if not os.path.isdir(profile_path):
+            continue
+        ext_json = os.path.join(profile_path, "extensions.json")
+        if not os.path.isfile(ext_json):
+            continue
+        try:
+            with open(ext_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for addon in data.get("addons", []):
+                name = addon.get("defaultLocale", {}).get("name", "")
+                if not name:
+                    name = addon.get("name", "")
+                if "klipvault" in name.lower() or "clip vault" in name.lower():
+                    ext_id = addon.get("id")
+                    if ext_id:
+                        return ext_id
+        except Exception:
+            continue
     return None
 
 
@@ -198,6 +303,16 @@ def install_chrome_windows(script_dir, host_script_path, extension_id=None):
         return False
 
 
+def to_windows_path(wsl_path):
+    """Convert a WSL path to a Windows path for use in manifest JSON."""
+    if wsl_path.startswith("/mnt/"):
+        drive = wsl_path[5]  # e.g., 'c' from /mnt/c/...
+        rest = wsl_path[7:]  # everything after /mnt/c/
+        win_sep = rest.replace("/", "\\")
+        return drive.upper() + ":\\" + win_sep
+    return wsl_path
+
+
 def install_firefox(script_dir, host_script_path):
     """Install for Firefox."""
     nm_dir = get_firefox_nm_dir()
@@ -206,19 +321,33 @@ def install_firefox(script_dir, host_script_path):
         return False
 
     os.makedirs(nm_dir, exist_ok=True)
+    wsl_mode = is_wsl()
 
-    # On Windows, Firefox requires an actual .exe for native messaging.
+    # Auto-detect the actual Firefox extension ID (critical for temporary add-ons)
+    firefox_ext_id = find_firefox_extension_id()
+    if firefox_ext_id:
+        print(f"🔍 Auto-detected Firefox extension ID: {firefox_ext_id}")
+    else:
+        print("⚠️  Could not auto-detect Firefox extension ID. Using default.")
+        print("   If you loaded the extension as a temporary add-on, the ID may be wrong.")
+        print("   Run diagnose_firefox.py after installation to fix this.")
+        firefox_ext_id = "derrickvf82@gmail.com"
+
+    # On Windows or WSL, Firefox requires an actual .exe for native messaging.
     # .bat files don't work because Firefox uses CreateProcessW directly.
     # We ship a tiny C wrapper (firefox_wrapper.exe) that discovers python.exe
     # via registry and runs klipvault_host.py with inherited stdio handles.
-    if platform.system() == "Windows":
+    if platform.system() == "Windows" or wsl_mode:
         dest_script = os.path.join(nm_dir, "klipvault_host.py")
-        shutil.copy2(host_script_path, dest_script)
+        # Manual copy to avoid shutil trying to copy permissions on Windows mounts
+        with open(host_script_path, "rb") as src, open(dest_script, "wb") as dst:
+            dst.write(src.read())
         # Copy the pre-built wrapper exe
         wrapper_src = os.path.join(script_dir, "firefox_wrapper.exe")
         if os.path.isfile(wrapper_src):
             wrapper_dest = os.path.join(nm_dir, "firefox_wrapper.exe")
-            shutil.copy2(wrapper_src, wrapper_dest)
+            with open(wrapper_src, "rb") as src, open(wrapper_dest, "wb") as dst:
+                dst.write(src.read())
             manifest_path = wrapper_dest
             print(f"✅ Firefox wrapper copied: {wrapper_dest}")
         else:
@@ -230,23 +359,41 @@ def install_firefox(script_dir, host_script_path):
                 f.write(f'"{python_exe}" "%~dp0klipvault_host.py"\n')
             manifest_path = bat_path
             print(f"⚠️  firefox_wrapper.exe not found, falling back to .bat: {bat_path}")
+
+        # If on WSL, manifest path must be a Windows-style path in the JSON
+        if wsl_mode:
+            manifest_path = to_windows_path(manifest_path)
     else:
         manifest_path = host_script_path
 
-    # Firefox manifest needs different allowed_origins
+    # Firefox manifest needs different allowed_extensions
     manifest = {
         "name": "klipvault_host",
         "description": "KlipVault Native Messaging Host for yt-dlp",
         "path": manifest_path,
         "type": "stdio",
-        "allowed_extensions": ["klipvault@velocityforge.com"]
+        "allowed_extensions": [firefox_ext_id]
     }
 
     dest_manifest = os.path.join(nm_dir, "klipvault_host.json")
     with open(dest_manifest, "w") as f:
         json.dump(manifest, f, indent=2)
 
+    # On Windows, also register in registry so Firefox can find it
+    if platform.system() == "Windows" and not wsl_mode:
+        try:
+            import winreg
+            key_path = r"SOFTWARE\Mozilla\NativeMessagingHosts\klipvault_host"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                winreg.SetValueEx(key, None, 0, winreg.REG_SZ, dest_manifest)
+            print(f"✅ Firefox registry key created: {key_path}")
+        except Exception as e:
+            print(f"⚠️  Could not create Firefox registry key: {e}")
+
     print(f"✅ Firefox manifest installed: {dest_manifest}")
+    print(f"   allowed_extensions: [{firefox_ext_id}]")
+    if wsl_mode:
+        print(f"   (WSL mode — manifest uses Windows path: {manifest_path})")
     return True
 
 
@@ -314,7 +461,7 @@ def main():
     system = platform.system()
     installed_any = False
 
-    if system == "Windows":
+    if system == "Windows" or is_wsl():
         if install_chrome_windows(script_dir, host_script, extension_id):
             installed_any = True
     else:

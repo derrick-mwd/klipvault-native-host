@@ -130,7 +130,7 @@ $firefoxExtDir = "$env:APPDATA\Mozilla\Firefox\Profiles"
 if (Test-Path $firefoxExtDir) {
     $profiles = Get-ChildItem $firefoxExtDir -Directory
     foreach ($profile in $profiles) {
-        $extFile = "$($profile.FullName)\extensions\klipvault@velocityforge.com"
+        $extFile = "$($profile.FullName)\extensions\derrickvf82@gmail.com"
         $jsonFile = "$($profile.FullName)\extensions.json"
         if (Test-Path $extFile) {
             Write-Host "   ✅ Extension found in profile: $($profile.Name)" -ForegroundColor Green

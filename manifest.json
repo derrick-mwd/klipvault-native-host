@@ -1,17 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "ClipVault Video Downloader",
-  "version": "1.1.6",
-  "description": "Download videos from YouTube, Vimeo, Dailymotion and more directly from your browser.",
+  "name": "KlipVault Video Downloader",
+  "version": "1.2.6",
+  "description": "Companion browser extension for KlipVault (https://klipvault.xyz). Downloads videos from YouTube, TikTok, Instagram, X, Reddit, Twitch, Vimeo, and more using yt-dlp. Enables HLS stream downloads and automatic cookie extraction for authenticated platforms.",
   "permissions": [
     "downloads",
     "storage",
     "activeTab",
     "scripting",
-    "nativeMessaging"
+    "nativeMessaging",
+    "cookies"
   ],
   "host_permissions": [
-    "https://clipvault-psi.vercel.app/*",
+    "https://klipvault.xyz/*",
     "https://*.googlevideo.com/*",
     "https://*.vimeocdn.com/*",
     "https://*.dmcdn.net/*"
@@ -22,8 +23,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://clipvault-psi.vercel.app/*",
-        "https://www.youtube.com/*",
+        "https://klipvault.xyz/*",
+            "https://www.youtube.com/*",
         "https://vimeo.com/*",
         "https://www.dailymotion.com/*"
       ],
@@ -45,6 +46,8 @@
     "128": "icons/icon128.png"
   },
   "externally_connectable": {
-    "matches": ["https://clipvault-psi.vercel.app/*"]
+    "matches": [
+      "https://klipvault.xyz/*"
+    ]
   }
 }

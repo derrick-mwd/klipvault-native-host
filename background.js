@@ -1,5 +1,6 @@
-// ClipVault Background Service Worker
-// Handles downloads via chrome.downloads (direct URLs) or native messaging (HLS/yt-dlp)
+// KlipVault Background Service Worker
+// Routes ALL downloads through native messaging (yt-dlp) when available.
+// Falls back to chrome.downloads for direct URLs when native host is unavailable.
 
 const downloadQueue = [];
 let downloadHistory = [];
@@ -92,11 +93,66 @@ function addToHistory(item) {
   saveHistory();
 }
 
-// Native Messaging: connect to the local yt-dlp host
+// ── Cookie extraction ────────────────────────────────────────────────────────
+
+/**
+ * Extract cookies from the browser for a given URL.
+ * Formats as Netscape cookies.txt for yt-dlp consumption.
+ */
+async function extractCookiesForUrl(url) {
+  return new Promise((resolve) => {
+    try {
+      if (!chrome.cookies || !chrome.cookies.getAll) {
+        resolve('');
+        return;
+      }
+      const parsed = new URL(url);
+      const domain = parsed.hostname;
+
+      chrome.cookies.getAll({ domain }, (cookies) => {
+        if (chrome.runtime.lastError || !cookies || cookies.length === 0) {
+          // Try without leading dot for exact match
+          chrome.cookies.getAll({ domain: domain.replace(/^www\./, '') }, (cookies2) => {
+            if (chrome.runtime.lastError || !cookies2 || cookies2.length === 0) {
+              resolve('');
+              return;
+            }
+            resolve(formatCookies(cookies2, domain));
+          });
+          return;
+        }
+        resolve(formatCookies(cookies, domain));
+      });
+    } catch (err) {
+      console.warn('[KlipVault] Cookie extraction error:', err);
+      resolve('');
+    }
+  });
+}
+
+function formatCookies(cookies, domain) {
+  // Netscape cookies.txt format
+  const lines = ['# Netscape HTTP Cookie File'];
+  for (const c of cookies) {
+    const host = c.domain.startsWith('.') ? c.domain : '.' + c.domain;
+    const path = c.path || '/';
+    const secure = c.secure ? 'TRUE' : 'FALSE';
+    const httpOnly = c.httpOnly ? 'TRUE' : 'FALSE';
+    const expiry = c.expirationDate ? Math.floor(c.expirationDate).toString() : '0';
+    const name = c.name;
+    const value = c.value;
+    // Netscape format: domain flag path secure expiry name value
+    lines.push(`${host}\tTRUE\t${path}\t${secure}\t${expiry}\t${name}\t${value}`);
+  }
+  return lines.join('\n');
+}
+
+// ── Native Messaging ─────────────────────────────────────────────────────────
+
 function connectNativeHost() {
   if (nativePort) return nativePort;
   try {
-    nativePort = chrome.runtime.connectNative('clipvault_host');
+    nativePort = chrome.runtime.connectNative('klipvault_host');
     nativePort.onMessage.addListener((msg) => {
       handleNativeMessage(msg);
     });
@@ -118,7 +174,6 @@ function connectNativeHost() {
 function handleNativeMessage(msg) {
   if (msg.type === 'pong') {
     nativeHostAvailable = msg.ytDlpFound;
-    // Broadcast status to popup and content scripts
     try {
       chrome.runtime.sendMessage({
         action: 'nativeHostStatus',
@@ -170,28 +225,46 @@ function handleNativeMessage(msg) {
 
 function pingNativeHost() {
   return new Promise((resolve) => {
-    const port = connectNativeHost();
-    if (!port) {
-      nativeHostAvailable = false;
-      resolve({ available: false, error: 'Native messaging not supported or host not installed' });
-      return;
-    }
-    // Wait a moment for pong response
+    const pingMsg = { action: 'ping' };
     const timeout = setTimeout(() => {
-      resolve({ available: false, error: 'Native host did not respond' });
+      console.warn('[KlipVault] pingNativeHost: timeout after 5000ms');
+      resolve({ available: false, error: 'Native host did not respond within 5s' });
     }, 5000);
 
-    const handler = (msg) => {
-      if (msg.type === 'pong') {
+    try {
+      chrome.runtime.sendNativeMessage('klipvault_host', pingMsg, (response) => {
         clearTimeout(timeout);
-        nativePort.onMessage.removeListener(handler);
-        resolve({ available: msg.ytDlpFound, ytDlpPath: msg.ytDlpPath, searchLog: msg.searchLog });
-      }
-    };
-    nativePort.onMessage.addListener(handler);
-    port.postMessage({ action: 'ping' });
+        if (chrome.runtime.lastError) {
+          console.warn('[KlipVault] pingNativeHost error:', chrome.runtime.lastError.message);
+          resolve({ available: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        if (!response) {
+          console.warn('[KlipVault] pingNativeHost: null response');
+          resolve({ available: false, error: 'Native host returned empty response' });
+          return;
+        }
+        console.log('[KlipVault] pingNativeHost response:', response);
+        if (response.type === 'pong') {
+          resolve({
+            available: !!response.ytDlpFound,
+            ytDlpPath: response.ytDlpPath || null,
+            searchLog: response.searchLog || [],
+          });
+        } else {
+          console.warn('[KlipVault] pingNativeHost: unexpected response type:', response.type);
+          resolve({ available: false, error: `Unexpected response type: ${response.type}` });
+        }
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      console.warn('[KlipVault] pingNativeHost exception:', err);
+      resolve({ available: false, error: err.message || String(err) });
+    }
   });
 }
+
+// ── Message Handlers ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'download') {
@@ -202,6 +275,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     const { payload } = message;
     handleDownload(payload)
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => sendResponse({ success: false, error: err.message || String(err) }));
+    return true;
+  }
+
+  // NEW: Full extension-native download — website sends URL, extension handles everything
+  if (message.action === 'extensionDownload') {
+    const check = canDownload();
+    if (!check.allowed) {
+      sendResponse({ success: false, error: check.reason, limit: check.limit, used: check.used });
+      return true;
+    }
+    handleExtensionDownload(message.payload)
       .then(() => sendResponse({ success: true }))
       .catch((err) => sendResponse({ success: false, error: err.message || String(err) }));
     return true;
@@ -291,34 +377,98 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// ── Download Routing ─────────────────────────────────────────────────────────
+
+/**
+ * Main download router.
+ * When native host is available: ALWAYS use yt-dlp (handles all platforms + cookies).
+ * When native host is unavailable: fall back to chrome.downloads for direct URLs.
+ */
 async function handleDownload(payload) {
-  const { url, directUrl, title, ext, quality, isHls, httpHeaders, cookies } = payload;
+  const { url, directUrl, title, ext, quality, isHls, httpHeaders } = payload;
 
-  // HLS or complex streams → use native messaging (yt-dlp)
-  const needsNative = isHls || (directUrl && directUrl.includes('.m3u8'));
+  // Check if native host is available
+  const status = await pingNativeHost();
 
-  if (needsNative) {
+  if (status.available) {
+    // yt-dlp path: handles ALL platforms, HLS, cookies, auth, etc.
     return await handleNativeDownload(payload);
   }
 
-  // Direct URLs → use chrome.downloads (fast path)
+  // No native host — fall back to direct download
+  const needsNative = isHls || (directUrl && directUrl.includes('.m3u8'));
+  if (needsNative) {
+    throw new Error('HLS streams require the KlipVault Extension with native messaging. Install yt-dlp and the native host. See the setup guide.');
+  }
+
   return await handleDirectDownload(payload);
 }
 
+/**
+ * NEW: Extension-native full download.
+ * Called when website sends {action: 'extensionDownload', payload: {url, formatId, title, ext, quality}}.
+ * Extension auto-extracts cookies and routes through yt-dlp.
+ */
+async function handleExtensionDownload(payload) {
+  const { url, formatId, title, ext, quality } = payload;
+
+  // Verify native host
+  const status = await pingNativeHost();
+  if (!status.available) {
+    const log = status.searchLog && status.searchLog.length
+      ? status.searchLog.join('\n')
+      : (status.error || 'No diagnostics available');
+    throw new Error(`Native host unavailable. ${status.error || 'yt-dlp not found'}\n\nDiagnostics:\n${log}`);
+  }
+
+  // Auto-extract cookies from browser for this URL
+  const cookies = await extractCookiesForUrl(url);
+
+  incrementDownloadCount();
+
+  addToHistory({
+    title: title || 'download',
+    url,
+    filename: sanitizeFilename(`${title || 'download'} [${quality || 'best'}].${ext || 'mp4'}`),
+    quality: quality || 'best',
+    ext: ext || 'mp4',
+    status: 'downloading',
+  });
+
+  // Send to native host
+  const port = connectNativeHost();
+  if (!port) {
+    throw new Error('Native host not connected.');
+  }
+
+  port.postMessage({
+    action: 'download',
+    payload: {
+      url,
+      title: title || 'download',
+      formatId: formatId || quality || 'best',
+      isHls: false, // yt-dlp will auto-detect
+      cookies: cookies || '',
+    },
+  });
+}
+
 async function handleNativeDownload(payload) {
-  const { url, title, ext, quality, formatId, isHls, cookies } = payload;
+  const { url, directUrl, title, ext, quality, formatId, isHls, cookies } = payload;
 
   // Ensure native host is connected
   const port = connectNativeHost();
   if (!port) {
-    throw new Error('Native host not connected. Install yt-dlp and the ClipVault native host. See the setup guide on the website.');
+    throw new Error('Native host not connected. Install yt-dlp and the KlipVault native host. See the setup guide on the website.');
   }
 
   // Verify yt-dlp is available
   const status = await pingNativeHost();
   if (!status.available) {
-    const log = status.searchLog ? status.searchLog.join('\n') : 'No search log available';
-    throw new Error(`yt-dlp not found. Install it with: pip install yt-dlp\n\nSearch log:\n${log}`);
+    const log = status.searchLog && status.searchLog.length
+      ? status.searchLog.join('\n')
+      : (status.error || 'No diagnostics available');
+    throw new Error(`Native host unavailable: ${status.error || 'yt-dlp not found'}\n\nDiagnostics:\n${log}\n\nInstall yt-dlp: pip install yt-dlp`);
   }
 
   incrementDownloadCount();
@@ -377,7 +527,7 @@ async function handleDirectDownload(payload) {
   const downloadId = await new Promise((resolve, reject) => {
     const opts = {
       url: directUrl,
-      filename: `ClipVault/${filename}`,
+      filename: `KlipVault/${filename}`,
       saveAs: false,
     };
     if (downloadHeaders.length > 0) {

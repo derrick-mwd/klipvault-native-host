@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KlipVault</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <span>KlipVault</span>
+    </div>
+    <a href="https://klipvault.xyz" target="_blank" class="open-site">
+      Open Site
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/>
+        <line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+    </a>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <span class="stat-value" id="total-count">0</span>
+      <span class="stat-label">Downloads</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value" id="active-count">0</span>
+      <span class="stat-label">Active</span>
+    </div>
+  </div>
+
+  <div id="premium-banner" class="premium-banner" style="display:none">
+    <div class="premium-badge">★ PREMIUM</div>
+    <p>Unlimited downloads</p>
+  </div>
+
+  <div id="free-banner" class="free-banner" style="display:none">
+    <div class="usage-bar">
+      <div class="usage-fill" id="usage-fill"></div>
+    </div>
+    <p class="usage-text" id="usage-text">0 / 3 free downloads today</p>
+    <a href="https://klipvault.xyz/premium" target="_blank" class="upgrade-btn">Upgrade to Premium</a>
+  </div>
+
+  <div id="batch-section" style="display:none">
+    <div class="section-title">Batch Queue <span id="batch-count" class="batch-count">0</span></div>
+    <div class="batch-controls">
+      <button id="start-batch-btn" class="batch-btn primary">Start Batch</button>
+      <button id="clear-batch-btn" class="batch-btn">Clear</button>
+    </div>
+    <div class="batch-list" id="batch-list"></div>
+  </div>
+
+  <div class="section-title">Recent Downloads</div>
+  <div class="downloads-list" id="downloads-list">
+    <div class="empty-state">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <p>No downloads yet</p>
+      <span>Go to klipvault.xyz to start downloading</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    <button class="btn-clear" id="clear-btn">Clear History</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
